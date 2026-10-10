@@ -1,0 +1,8 @@
+#SPDX-License-Identifier: MIT-0
+---
+# handlers file for backup
+- name: Restart log-backup timer
+  ansible.builtin.systemd:
+    name: log-backup.timer
+    daemon_reload: true
+    state: restarted

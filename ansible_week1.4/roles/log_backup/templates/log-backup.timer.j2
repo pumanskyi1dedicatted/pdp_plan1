@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Run log backup on schedule
+
+[Timer]
+OnCalendar={{ log_backup_schedule }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

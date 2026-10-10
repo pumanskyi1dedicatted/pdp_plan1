@@ -1,0 +1,59 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for nginx
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Put a website file
+  ansible.builtin.file:
+    state: directory
+    dest: "{{ nginx_root }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy a website
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ nginx_root }}/index.html"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Set up a website file
+  ansible.builtin.template:
+    src: app.conf.j2
+    dest: "/etc/nginx/sites-available/app.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Validate nginx config
+    - Reload nginx
+
+- name: Turn on the website
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/app.conf"
+    dest: "/etc/nginx/sites-enabled/app.conf"
+    state: link
+  notify:
+    - Validate nginx config
+    - Reload nginx
+
+- name: Turn off a defolt nginx page
+  ansible.builtin.file:
+    state: absent
+    dest: "/etc/nginx/sites-enabled/default"
+  notify:
+    - Validate nginx config
+    - Reload nginx
+
+- name: Start the service
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

@@ -1,0 +1,7 @@
+- name: Configure app servers
+  hosts: all
+  become: true
+  roles:
+    - ssh_hardening
+    - nginx
+    - log_backup

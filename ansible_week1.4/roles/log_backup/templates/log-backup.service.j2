@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Archive nginx and journal logs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/log_backup.sh
