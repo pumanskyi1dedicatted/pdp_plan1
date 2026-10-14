@@ -1,0 +1,34 @@
+# my global config
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: nginx
+    static_configs:
+      - targets: ["nginx-exporter-proxy:9113"]
+        labels:
+          role: proxy
+      - targets:
+          - "nginx-exporter-backend1:9113"
+          - "nginx-exporter-backend2:9113"
+        labels:
+          role: backend
+
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.

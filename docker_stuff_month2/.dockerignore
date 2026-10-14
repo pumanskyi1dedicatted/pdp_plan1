@@ -1,0 +1,6 @@
+.git
+*.md
+.env
+monitoring/
+proxy/
+scripts/
