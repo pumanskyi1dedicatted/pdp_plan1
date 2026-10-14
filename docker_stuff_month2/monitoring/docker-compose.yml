@@ -1,0 +1,98 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - prometheus_data:/prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+    networks:
+      - monitoring
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+    depends_on:
+      - prometheus
+    env_file:
+      - .env
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+    networks:
+      - monitoring
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run|var/lib/docker/.+)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro,rslave
+    pid: host
+    security_opt:
+      - label=disable
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 64M
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /sys:/sys:ro
+      - /var/run:/var/run:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  monitoring:
+    external: true

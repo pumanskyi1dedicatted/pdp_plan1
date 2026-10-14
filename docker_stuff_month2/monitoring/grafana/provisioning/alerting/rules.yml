@@ -1,0 +1,163 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: infrastructure
+    folder: Alerts
+    interval: 1m
+    rules:
+      - uid: target-down
+        title: Target down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: up
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 1m
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: "Target {{ $labels.job }}/{{ $labels.instance }} is down"
+
+      - uid: nginx-down
+        title: Nginx down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: nginx_up
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 1m
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: "Nginx {{ $labels.instance }} ({{ $labels.role }}) is down"
+
+      - uid: host-out-of-memory
+        title: Host out of memory
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [10] }
+        for: 2m
+        noDataState: NoData
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Host memory is filling up (< 10% available)"
+
+      - uid: host-out-of-disk
+        title: Host out of disk space
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|overlay"} * 100
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [10] }
+        for: 2m
+        noDataState: NoData
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Root filesystem has < 10% free space"
+
+      - uid: host-high-cpu
+        title: Host high CPU load
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[2m]))) * 100
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [80] }
+        for: 10m
+        noDataState: NoData
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Host CPU usage > 80% for 10 minutes"
+
+      - uid: container-restarted
+        title: Container restarted
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: changes(container_start_time_seconds{name!=""}[10m])
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Container {{ $labels.name }} restarted in the last 10 minutes"
