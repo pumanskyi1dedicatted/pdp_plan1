@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BankAPI</title>
+<style>
+  :root {
+    --paper: #e9efe8;
+    --sheet: #f7faf6;
+    --ink: #1f4d3a;
+    --ink-soft: #5d7568;
+    --blue: #2b4c7e;
+    --debt: #a23b2a;
+    --line: #c9d6cc;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #121a16;
+      --sheet: #18231d;
+      --ink: #cfe3d6;
+      --ink-soft: #8fa79a;
+      --blue: #8fb0e0;
+      --debt: #e08a7a;
+      --line: #2c3d33;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.5 var(--sans);
+  }
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 20px 48px;
+    display: grid;
+    grid-template-columns: 1fr 1.3fr;
+    gap: 24px;
+  }
+  header { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 16px; }
+  h1 { font: 600 2rem/1.1 var(--serif); margin: 0; }
+  header p { margin: 0; color: var(--ink-soft); }
+  section {
+    background: var(--sheet);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 20px;
+  }
+  h2 { font: 600 1.15rem var(--serif); margin: 0 0 12px; }
+  label { display: block; font-size: .9rem; color: var(--ink-soft); margin: 10px 0 4px; }
+  input {
+    width: 100%;
+    padding: 9px 10px;
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+  button {
+    font: inherit;
+    padding: 9px 16px;
+    border-radius: 4px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--sheet);
+    cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--ink); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+
+  /* The passbook: the one memorable element */
+  .passbook { margin-top: 18px; border-top: 2px solid var(--ink); padding-top: 14px; }
+  .passbook dl { margin: 0; display: grid; grid-template-columns: 1fr auto; row-gap: 6px; }
+  .passbook dt { color: var(--ink-soft); }
+  .passbook dd { margin: 0; font: 600 1.6rem/1.2 var(--serif); text-align: right; font-variant-numeric: tabular-nums; }
+  .passbook dd.debt { color: var(--debt); }
+  .passbook .owner { font: italic 1rem var(--serif); margin-bottom: 8px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 4px; flex-wrap: wrap; }
+  .tabs button {
+    background: transparent;
+    color: var(--ink-soft);
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 8px 10px;
+  }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+  .hint { font-size: .85rem; color: var(--ink-soft); margin: 8px 0 0; }
+
+  .log { grid-column: 1 / -1; }
+  .log ol { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+  .log li {
+    display: grid;
+    grid-template-columns: 70px 110px 1fr;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px dashed var(--line);
+    font-size: .92rem;
+  }
+  .log time { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .log .err { color: var(--debt); }
+  .empty { color: var(--ink-soft); margin: 0; }
+
+  @media (max-width: 720px) {
+    main { grid-template-columns: 1fr; }
+    .log li { grid-template-columns: 60px 1fr; }
+    .log li span:last-child { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>BankAPI</h1>
+    <p>Accounts, transfers and loans</p>
+  </header>
+
+  <section aria-labelledby="account-title">
+    <h2 id="account-title">Account</h2>
+    <label for="username">Username</label>
+    <input id="username" autocomplete="username">
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <div class="row">
+      <button id="btn-signin">Sign in</button>
+      <button id="btn-register" class="secondary">Create account</button>
+    </div>
+
+    <div class="passbook" id="passbook" hidden>
+      <div class="owner" id="owner"></div>
+      <dl>
+        <dt>Balance</dt><dd id="own">0</dd>
+        <dt>Debt</dt><dd id="debt" class="debt">0</dd>
+      </dl>
+      <div class="row">
+        <button id="btn-refresh" class="secondary">Refresh balance</button>
+        <button id="btn-signout" class="secondary">Sign out</button>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="ops-title">
+    <h2 id="ops-title">Operations</h2>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-op="add" aria-selected="true">Deposit</button>
+      <button role="tab" data-op="transfer" aria-selected="false">Transfer</button>
+      <button role="tab" data-op="take_loan" aria-selected="false">Take loan</button>
+      <button role="tab" data-op="pay_loan" aria-selected="false">Repay loan</button>
+    </div>
+    <div id="field-to" hidden>
+      <label for="to">Recipient username</label>
+      <input id="to">
+    </div>
+    <label for="amount">Amount</label>
+    <input id="amount" type="number" min="1" step="1">
+    <p class="hint" id="op-hint"></p>
+    <div class="row">
+      <button id="btn-run" disabled>Deposit</button>
+    </div>
+  </section>
+
+  <section class="log" aria-labelledby="log-title">
+    <h2 id="log-title">Session log</h2>
+    <p class="empty" id="log-empty">Operations you run will appear here.</p>
+    <ol id="log"></ol>
+  </section>
+</main>
+
+<script>
+  // All requests use relative paths: the browser sends them to the same
+  // nginx that served this page, so no CORS and no hardcoded hosts.
+  const API = "/api";
+
+  const ops = {
+    add:       { label: "Deposit",    hint: "A fee of 1 is charged by the bank.",  needsTo: false },
+    transfer:  { label: "Transfer",   hint: "A fee of 1 is charged by the bank.",  needsTo: true },
+    take_loan: { label: "Take loan",  hint: "The amount is added to balance and debt.", needsTo: false },
+    pay_loan:  { label: "Repay loan", hint: "Paid from your balance.",             needsTo: false },
+  };
+
+  // Credentials live only in memory for this tab, never in browser storage.
+  let creds = null;
+  let currentOp = "add";
+
+  const $ = (id) => document.getElementById(id);
+
+  async function call(endpoint, payload) {
+    let res, body = {};
+    try {
+      res = await fetch(`${API}/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      return { ok: false, msg: "The API is unreachable. Check that the backend is running." };
+    }
+    try { body = await res.json(); } catch { /* non-JSON error page */ }
+    // Success means a 2xx HTTP code and, for the current API version,
+    // "status": 200 inside the body.
+    const ok = res.ok && (body.status === undefined || body.status === 200);
+    const msg = body.msg || (ok ? "Done" : `Request failed with HTTP ${res.status}`);
+    return { ok, msg, body };
+  }
+
+  function log(op, ok, msg) {
+    $("log-empty").hidden = true;
+    const li = document.createElement("li");
+    const time = document.createElement("time");
+    time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const name = document.createElement("span");
+    name.textContent = op;
+    const text = document.createElement("span");
+    text.textContent = msg;
+    if (!ok) text.className = "err";
+    li.append(time, name, text);
+    $("log").prepend(li);
+  }
+
+  async function loadBalance() {
+    const r = await call("balance", creds);
+    if (!r.ok) return r;
+    $("owner").textContent = r.body.Username ?? creds.username;
+    $("own").textContent = r.body.Own ?? r.body.own ?? 0;
+    $("debt").textContent = r.body.Debt ?? r.body.debt ?? 0;
+    return r;
+  }
+
+  function readCreds() {
+    const username = $("username").value.trim();
+    const password = $("password").value;
+    if (!username || !password) {
+      log("Account", false, "Enter a username and password.");
+      return null;
+    }
+    return { username, password };
+  }
+
+  function setSignedIn(on) {
+    $("passbook").hidden = !on;
+    $("btn-run").disabled = !on;
+    $("username").disabled = on;
+    $("password").disabled = on;
+    $("btn-signin").disabled = on;
+    $("btn-register").disabled = on;
+  }
+
+  $("btn-signin").onclick = async () => {
+    const c = readCreds();
+    if (!c) return;
+    creds = c;
+    const r = await loadBalance();
+    if (r.ok) { setSignedIn(true); log("Sign in", true, `Signed in as ${c.username}`); }
+    else { creds = null; log("Sign in", false, r.msg); }
+  };
+
+  $("btn-register").onclick = async () => {
+    const c = readCreds();
+    if (!c) return;
+    const r = await call("register", c);
+    log("Create account", r.ok, r.msg);
+    if (r.ok) { creds = c; await loadBalance(); setSignedIn(true); }
+  };
+
+  $("btn-refresh").onclick = async () => {
+    const r = await loadBalance();
+    if (!r.ok) log("Balance", false, r.msg);
+  };
+
+  $("btn-signout").onclick = () => {
+    creds = null;
+    $("password").value = "";
+    setSignedIn(false);
+    log("Sign out", true, "Signed out");
+  };
+
+  document.querySelectorAll(".tabs button").forEach((tab) => {
+    tab.onclick = () => {
+      currentOp = tab.dataset.op;
+      document.querySelectorAll(".tabs button")
+        .forEach((t) => t.setAttribute("aria-selected", t === tab));
+      $("field-to").hidden = !ops[currentOp].needsTo;
+      $("op-hint").textContent = ops[currentOp].hint;
+      $("btn-run").textContent = ops[currentOp].label;
+    };
+  });
+  $("op-hint").textContent = ops.add.hint;
+
+  $("btn-run").onclick = async () => {
+    const amount = Number($("amount").value);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      log(ops[currentOp].label, false, "Enter a whole amount greater than zero.");
+      return;
+    }
+    const payload = { ...creds, amount };
+    if (ops[currentOp].needsTo) {
+      payload.to = $("to").value.trim();
+      if (!payload.to) { log("Transfer", false, "Enter the recipient username."); return; }
+    }
+    $("btn-run").disabled = true;
+    const r = await call(currentOp, payload);
+    log(ops[currentOp].label, r.ok, r.msg);
+    if (r.ok) { $("amount").value = ""; await loadBalance(); }
+    $("btn-run").disabled = false;
+  };
+</script>
+</body>
+</html>
