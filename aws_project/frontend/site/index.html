@@ -208,7 +208,7 @@
     try { body = await res.json(); } catch { /* non-JSON error page */ }
     // Success means a 2xx HTTP code and, for the current API version,
     // "status": 200 inside the body.
-    const ok = res.ok && (body.status === undefined || body.status === 200);
+    const ok = res.ok && (body.status === undefined || (body.status >= 200 && body.status < 300));
     const msg = body.msg || (ok ? "Done" : `Request failed with HTTP ${res.status}`);
     return { ok, msg, body };
   }

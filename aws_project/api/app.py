@@ -1,242 +1,230 @@
-import functools
-import logging
 import os
 
-import bcrypt
-from flask import Flask, request
+from flask import Flask, jsonify, request
 from flask_restful import Api, Resource
-from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError, PyMongoError
-
-# --- Configuration (12-factor: everything comes from the environment) ---
-MONGO_URL = os.environ["MONGO_URL"]
-MONGO_DB = os.environ.get("MONGO_DB", "BankAPI")
-BANK_ACCOUNT = "BANK"
-FEE = 1
-
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
-log = logging.getLogger("bankapi")
+import psycopg
+from psycopg.conninfo import make_conninfo
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool, PoolTimeout
+import bcrypt
 
 app = Flask(__name__)
 api = Api(app)
+# Connection settings as separate variables: on AWS the password comes from
+# a secret and is injected by ECS as its own variable, the host from Terraform.
+DB_CONNINFO = make_conninfo(
+    host=os.environ["DB_HOST"],
+    port=os.environ.get("DB_PORT", "5432"),
+    dbname=os.environ.get("DB_NAME", "bankapi"),
+    user=os.environ["DB_USER"],
+    password=os.environ["DB_PASSWORD"],
+    # TLS by default (RDS); set DB_SSLMODE=disable only for a local database
+    sslmode=os.environ.get("DB_SSLMODE", "require"),
+)
 
-# Fail fast instead of hanging 30s when the database is unreachable.
-client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=2000)
-users = client[MONGO_DB]["Users"]
+pool = ConnectionPool(
+    DB_CONNINFO,
+    min_size=1,
+    max_size=5,
+    timeout=3,
+    kwargs={"autocommit": True, "row_factory": dict_row, "connect_timeout": 2},
+    check=ConnectionPool.check_connection,
+    open=False,
+)
+pool.open(wait=False)
 
-# A unique index makes duplicate usernames impossible even under concurrent
-# requests. Startup must not crash if the database is briefly unavailable.
-try:
-    users.create_index("Username", unique=True)
-except PyMongoError as exc:
-    log.warning("Could not ensure the Username index at startup: %s", exc)
+def fetchOne(sql, params=()):
+    # take a connection from the pool, run the query, give the connection back
+    with pool.connection() as conn:
+        return conn.execute(sql, params).fetchone()
 
+def execute(sql, params=()):
+    with pool.connection() as conn:
+        conn.execute(sql, params)
 
-# --- Helpers ---
-def reply(code, msg):
-    """Same HTTP code in the response and in the body (for old clients)."""
-    return {"status": code, "msg": msg}, code
+def UserExist(username):
+    if fetchOne("SELECT 1 FROM users WHERE username = %s", (username,)) is not None:
+        return True
+    return False
 
+class Register(Resource):
+    def post(self):
+        postedData = request.get_json()
+        username = postedData["username"]
+        password = postedData["password"]
 
-def is_non_empty_str(value):
-    return isinstance(value, str) and value.strip() != ""
+        if UserExist(username):
+            return generateReturnDictionary(409, "Invalid username")
+        hashed_pw = bcrypt.hashpw(password.encode('utf8'), bcrypt.gensalt())
 
+        execute(
+            "INSERT INTO users (username, password, own, debt) VALUES (%s, %s, 0, 0)",
+            (username, hashed_pw),
+        )
+        return generateReturnDictionary(200, "You successfully signed up for the API")
+    
+def verifyPw(username, password):
+    if not UserExist(username):
+        return False
+    hashed_pw = fetchOne(
+        "SELECT password FROM users WHERE username = %s", (username,)
+    )["password"]
+    if bcrypt.hashpw(password.encode('utf8'), hashed_pw) == hashed_pw:
+        return True
+    else:        
+        return False
+        
+def cashWithUser(username):
+    cash = fetchOne("SELECT own FROM users WHERE username = %s", (username,))["own"]
+    return cash
+    
+def debtWithUser(username):
+    debt = fetchOne("SELECT debt FROM users WHERE username = %s", (username,))["debt"]
+    return debt
+    
+def generateReturnDictionary(status,msg):
+    retJson = {
+        "status": status,
+        "msg": msg
+    }
+    return retJson, status
+    
+def verifyCredentials(username, password):
+    if not UserExist(username):
+        return generateReturnDictionary(401, "Invalid username"), True
+        
+    correct_pw = verifyPw(username, password)
+    if not correct_pw:
+        return generateReturnDictionary(401, "Invalid password"), True
+    return None, False
+    
+def updateAccount(username, balance):
+    execute("UPDATE users SET own = %s WHERE username = %s", (balance, username))
 
-def parse_amount(value):
-    """Amounts are positive integers; booleans are rejected explicitly."""
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        return None
-    return value
-
-
-def get_fields(*names):
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return None, reply(400, "Request body must be a JSON object")
-    missing = [name for name in names if name not in data]
-    if missing:
-        return None, reply(400, f"Missing fields: {', '.join(missing)}")
-    return data, None
-
-
-def authenticate(username, password):
-    if not is_non_empty_str(username) or not is_non_empty_str(password):
-        return None
-    user = users.find_one({"Username": username})
-    if user is None or "Password" not in user:
-        return None
-    if not bcrypt.checkpw(password.encode("utf-8"), user["Password"]):
-        return None
-    return user
-
-
-def authorized_request(*extra_fields):
-    """Validate the body and credentials. Returns (data, user, error)."""
-    data, error = get_fields("username", "password", *extra_fields)
-    if error:
-        return None, None, error
-    user = authenticate(data["username"], data["password"])
-    if user is None:
-        # One message for both cases, so usernames cannot be enumerated.
-        return None, None, reply(401, "Invalid username or password")
-    return data, user, None
-
-
-def collect_fee():
-    # upsert creates the BANK account on an empty database.
-    users.update_one(
-        {"Username": BANK_ACCOUNT},
-        {"$inc": {"Own": FEE}, "$setOnInsert": {"Debt": 0}},
-        upsert=True,
-    )
-
-
-def handle_db_errors(func):
-    """A database outage is a temporary condition: 503, not a crash with 500."""
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except PyMongoError as exc:
-            log.error("Database error: %s", exc)
-            return reply(503, "Service temporarily unavailable")
-
-    return wrapper
+def updateDebt(username, balance):
+    execute("UPDATE users SET debt = %s WHERE username = %s", (balance, username))
 
 
-class BaseResource(Resource):
-    method_decorators = [handle_db_errors]
-
-
-# --- Endpoints ---
 class Health(Resource):
     def get(self):
         try:
-            client.admin.command("ping")
-        except PyMongoError as exc:
-            log.error("Health check failed: %s", exc)
+            with pool.connection(timeout=2) as conn:
+                conn.execute("SELECT 1")
+        except (psycopg.Error, PoolTimeout):
             return {"status": "error"}, 503
         return {"status": "ok"}, 200
 
 
-class Register(BaseResource):
+class Add(Resource):
     def post(self):
-        data, error = get_fields("username", "password")
+        postedData = request.get_json()
+        username = postedData["username"]
+
+        password = postedData["password"]
+        amount = postedData["amount"]
+
+        retJson, error = verifyCredentials(username, password)
         if error:
-            return error
-        username, password = data["username"], data["password"]
-        if not is_non_empty_str(username) or not is_non_empty_str(password):
-            return reply(400, "Username and password must be non-empty strings")
-        if username == BANK_ACCOUNT or users.find_one({"Username": username}):
-            return reply(409, "Username is not available")
+            return retJson
+        
+        if amount <= 0:
+            return generateReturnDictionary(400, "The money amount entered must be positive!")
 
-        hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
-        try:
-            users.insert_one(
-                {"Username": username, "Password": hashed, "Own": 0, "Debt": 0}
-            )
-        except DuplicateKeyError:
-            return reply(409, "Username is not available")
-        return reply(201, "Account created")
+        cash = cashWithUser(username)
+        
+        amount -=1
+        bank_cash = cashWithUser("BANK")
+        updateAccount("BANK", bank_cash + 1)
+        updateAccount(username, cash + amount)
+
+        return generateReturnDictionary(200, "Amount added successfully to account")
 
 
-class Add(BaseResource):
+
+class Transfer(Resource):
     def post(self):
-        data, user, error = authorized_request("amount")
-        if error:
-            return error
-        amount = parse_amount(data["amount"])
-        if amount is None:
-            return reply(400, "Amount must be a positive integer")
+        postedData = request.get_json()
+        username = postedData["username"]
+        password = postedData["password"]
+        to = postedData["to"]
+        money = postedData["amount"]
 
-        # $inc is atomic: no lost updates under concurrent requests.
-        users.update_one(
-            {"Username": user["Username"]}, {"$inc": {"Own": amount - FEE}}
+        retJson, error = verifyCredentials(username, password)
+        if error:
+            return retJson
+        
+        cash = cashWithUser(username)
+        if cash <= 0:
+            return generateReturnDictionary(400, "You`re out of money, please add or take a loan")
+
+        if not UserExist(to):
+            return generateReturnDictionary(404, "Receiver username is invalid")
+        
+        cash_from = cashWithUser(username)
+        cash_to = cashWithUser(to)
+        bank_cash = cashWithUser("BANK")
+        updateAccount("BANK", bank_cash + 1)
+        updateAccount(to, cash_to + money - 1)
+        updateAccount(username, cash_from - money)
+
+        return generateReturnDictionary(200, "Amount transferred successfully")
+    
+class Balance(Resource):
+    def post(self):
+        postedData = request.get_json()
+        username = postedData["username"]
+        password = postedData["password"]
+        retJson, error = verifyCredentials(username, password)
+        if error:
+            return retJson
+        
+        retJson = fetchOne(
+            'SELECT username AS "Username", own AS "Own", debt AS "Debt" FROM users WHERE username = %s',
+            (username,),
         )
-        collect_fee()
-        return reply(200, "Amount added to account")
 
-
-class Transfer(BaseResource):
+        return jsonify(retJson)
+    
+class TakeLoan(Resource):
     def post(self):
-        data, user, error = authorized_request("to", "amount")
+        postedData = request.get_json()
+
+        username = postedData["username"]
+        password = postedData["password"]
+        money = postedData["amount"]
+
+        retJson, error = verifyCredentials(username, password)
+
         if error:
-            return error
-        amount = parse_amount(data["amount"])
-        if amount is None:
-            return reply(400, "Amount must be a positive integer")
-        to = data["to"]
-        if not is_non_empty_str(to) or to in (BANK_ACCOUNT, user["Username"]):
-            return reply(400, "Invalid recipient")
-        if users.find_one({"Username": to}) is None:
-            return reply(404, "Recipient not found")
+            return retJson
+        cash = cashWithUser(username)
+        debt = debtWithUser(username)
+        updateAccount(username, cash + money)
+        updateDebt(username, debt + money)
+        return generateReturnDictionary(200, "Loan added successfully!")
+    
 
-        # Debit only if the balance covers the amount, in one atomic operation.
-        debit = users.update_one(
-            {"Username": user["Username"], "Own": {"$gte": amount}},
-            {"$inc": {"Own": -amount}},
-        )
-        if debit.modified_count == 0:
-            return reply(400, "Insufficient funds")
-        # Note: without a replica set MongoDB has no multi-document
-        # transactions, so these steps are not atomic as a whole.
-        users.update_one({"Username": to}, {"$inc": {"Own": amount - FEE}})
-        collect_fee()
-        return reply(200, "Amount transferred")
-
-
-class Balance(BaseResource):
+class PayLoan(Resource):
     def post(self):
-        _, user, error = authorized_request()
+        postedData = request.get_json()
+
+        username = postedData["username"]
+        password = postedData["password"]
+        money = postedData["amount"]
+
+        retJson, error = verifyCredentials(username, password)
         if error:
-            return error
-        return {
-            "Username": user["Username"],
-            "Own": user.get("Own", 0),
-            "Debt": user.get("Debt", 0),
-        }, 200
+            return retJson
+        
+        cash = cashWithUser(username)
+        if cash < money:
+            return generateReturnDictionary(400, "You don`t have enough money to pay the loan!")
+        
+        debt = debtWithUser(username)
+        updateAccount(username, cash - money)
+        updateDebt(username, debt - money)
 
-
-class TakeLoan(BaseResource):
-    def post(self):
-        data, user, error = authorized_request("amount")
-        if error:
-            return error
-        amount = parse_amount(data["amount"])
-        if amount is None:
-            return reply(400, "Amount must be a positive integer")
-
-        users.update_one(
-            {"Username": user["Username"]},
-            {"$inc": {"Own": amount, "Debt": amount}},
-        )
-        return reply(200, "Loan added")
-
-
-class PayLoan(BaseResource):
-    def post(self):
-        data, user, error = authorized_request("amount")
-        if error:
-            return error
-        amount = parse_amount(data["amount"])
-        if amount is None:
-            return reply(400, "Amount must be a positive integer")
-
-        result = users.update_one(
-            {
-                "Username": user["Username"],
-                "Own": {"$gte": amount},
-                "Debt": {"$gte": amount},
-            },
-            {"$inc": {"Own": -amount, "Debt": -amount}},
-        )
-        if result.modified_count == 0:
-            return reply(400, "Insufficient funds or amount exceeds the debt")
-        return reply(200, "Loan repaid")
+        return generateReturnDictionary(200, "Loan paid successfully!")
 
 
 api.add_resource(Health, "/api/health")
@@ -247,12 +235,5 @@ api.add_resource(Balance, "/api/balance")
 api.add_resource(TakeLoan, "/api/take_loan")
 api.add_resource(PayLoan, "/api/pay_loan")
 
-
-# Local development only. In containers the app is started by gunicorn,
-# which imports `app` directly, so this block never runs there.
 if __name__ == "__main__":
-    app.run(
-        host="127.0.0.1",
-        port=int(os.environ.get("PORT", "5000")),
-        debug=os.environ.get("FLASK_DEBUG") == "1",
-    )
+    app.run(host='0.0.0.0', debug=os.environ.get("FLASK_DEBUG") == "1")
