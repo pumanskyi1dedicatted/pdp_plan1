@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 
-RUN useradd --system --no-create-home appuser
+RUN useradd --system --create-home appuser
 USER appuser
 
 EXPOSE 5000
