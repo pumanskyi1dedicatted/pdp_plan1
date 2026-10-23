@@ -1,8 +1,8 @@
 FROM python:3.14-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    WEB_CONCURRENCY=2
+  PYTHONDONTWRITEBYTECODE=1 \
+  WEB_CONCURRENCY=2
 
 WORKDIR /app
 
@@ -11,6 +11,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
+COPY migrate.py .
+COPY migrations/ migrations/
 
 RUN useradd --system --create-home appuser
 USER appuser
