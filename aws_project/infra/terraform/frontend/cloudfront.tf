@@ -78,7 +78,7 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
 
     custom_header {
       name  = local.backend.origin_header_name
-      value = local.backend.origin_secret
+      value = sensitive(local.backend.origin_secret)
     }
   }
 

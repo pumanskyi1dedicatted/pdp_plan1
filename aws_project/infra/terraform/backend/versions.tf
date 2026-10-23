@@ -3,7 +3,7 @@ terraform {
 
   backend "s3" {
     bucket       = "fresh-project-pavel-terraform-state-2026"
-    key          = "frontend/terraform.tfstate"
+    key          = "backend/terraform.tfstate"
     region       = "eu-north-1"
     use_lockfile = true
   }
