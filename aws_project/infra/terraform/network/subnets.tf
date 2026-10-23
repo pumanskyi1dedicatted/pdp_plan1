@@ -33,3 +33,21 @@ resource "aws_subnet" "private_subnet_eu_north_1b" {
     Name = "private_subnet_eu_north_1b"
   }
 }
+
+resource "aws_subnet" "database_subnet_eu_north_1a" {
+  vpc_id            = aws_vpc.my_vpc.id
+  cidr_block        = "10.0.30.0/24"
+  availability_zone = "eu-north-1a"
+  tags = {
+    Name = "database_subnet_eu_north_1a"
+  }
+}
+
+resource "aws_subnet" "database_subnet_eu_north_1b" {
+  vpc_id            = aws_vpc.my_vpc.id
+  cidr_block        = "10.0.40.0/24"
+  availability_zone = "eu-north-1b"
+  tags = {
+    Name = "database_subnet_eu_north_1b"
+  }
+}
