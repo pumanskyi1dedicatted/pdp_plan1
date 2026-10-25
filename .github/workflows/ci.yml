@@ -98,7 +98,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build an image from Dockerfile
-        run: docker build --pull --platform linux/amd64 --provenance=false -t bankapi:${{ github.sha }}
+        run: docker build --pull --platform linux/amd64 --provenance=false -t bankapi:${{ github.sha }} aws_project/api
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
