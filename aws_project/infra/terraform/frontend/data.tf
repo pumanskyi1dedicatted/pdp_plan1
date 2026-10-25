@@ -7,3 +7,12 @@ data "terraform_remote_state" "backend" {
   }
 }
 
+data "terraform_remote_state" "dns" {
+  backend = "s3"
+  config = {
+    bucket = "fresh-project-pavel-terraform-state-2026"
+    key    = "dns/terraform.tfstate"
+    region = "eu-north-1"
+  }
+}
+

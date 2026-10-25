@@ -16,3 +16,9 @@ variable "environment" {
   default     = "prod"
 }
 
+variable "site_domain" {
+  description = "Domain name"
+  type        = string
+  default     = "devopspavel.me"
+}
+

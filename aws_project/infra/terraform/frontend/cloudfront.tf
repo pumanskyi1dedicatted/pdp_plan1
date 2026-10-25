@@ -53,6 +53,7 @@ resource "aws_cloudfront_origin_access_control" "default" {
 }
 
 resource "aws_cloudfront_distribution" "s3_distribution" {
+  aliases             = [var.site_domain]
   enabled             = true
   is_ipv6_enabled     = true
   comment             = "BankAPI: static site from S3, /api/* to ALB"
@@ -66,13 +67,13 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
   }
 
   origin {
-    domain_name = local.backend.alb_dns_name
+    domain_name = local.backend.origin_domain
     origin_id   = local.alb_origin_id
 
     custom_origin_config {
       http_port              = 80
       https_port             = 443
-      origin_protocol_policy = "http-only" # у ALB нет сертификата, пока нет своего домена
+      origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
 
@@ -109,6 +110,8 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    acm_certificate_arn      = data.terraform_remote_state.dns.outputs.cloudfront_certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 }
