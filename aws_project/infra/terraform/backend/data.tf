@@ -25,6 +25,14 @@ data "terraform_remote_state" "ecr" {
   }
 }
 
+data "terraform_remote_state" "dns" {
+  backend = "s3"
+  config = {
+    bucket = "fresh-project-pavel-terraform-state-2026"
+    key    = "dns/terraform.tfstate"
+    region = "eu-north-1"
+  }
+}
 
 data "aws_ec2_managed_prefix_list" "cloudfront" {
   name = "com.amazonaws.global.cloudfront.origin-facing"

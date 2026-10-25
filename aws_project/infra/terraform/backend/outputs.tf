@@ -11,3 +11,7 @@ output "origin_secret" {
   value     = random_password.origin_secret.result
   sensitive = true
 }
+
+output "origin_domain" {
+  value = local.origin_domain
+}
