@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hadolint:
+    name: Lint Dockerfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: aws_project/api/Dockerfile
+
+  shellcheck:
+    name: Lint shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: find aws_project -name '*.sh' -print0 | xargs -0 -r shellcheck
+
+  yamllint:
+    name: Lint YAML
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run yamllint
+        run: pipx run yamllint .github/workflows
+
+  ruff:
+    name: Lint Python
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ruff
+        uses: astral-sh/ruff-action@v4.1.0
+        with:
+          src: aws_project/api
+
+  terraform:
+    name: Terraform (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [bootstrap, ecr, dns, ci, network, database, backend, frontend]
+    defaults:
+      run:
+        working-directory: aws_project/infra/terraform/${{ matrix.dir }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.5
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+  build:
+    name: Build and scan image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build an image from Dockerfile
+        run: docker build --pull --platform linux/amd64 --provenance=false -t bankapi:${{ github.sha }}
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: "bankapi:${{ github.sha }}"
+          format: "table"
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
