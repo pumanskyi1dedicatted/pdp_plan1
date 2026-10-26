@@ -37,6 +37,9 @@ resource "aws_launch_template" "ecs" {
     #!/bin/bash
     echo "ECS_CLUSTER=${local.cluster_name}" >> /etc/ecs/ecs.config
     echo "ECS_AWSVPC_BLOCK_IMDS=true" >> /etc/ecs/ecs.config
+    dnf install -y amazon-cloudwatch-agent
+    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+      -a fetch-config -m ec2 -s -c ssm:${aws_ssm_parameter.cw_agent.name}
   EOT
   )
 }
@@ -114,6 +117,10 @@ resource "aws_ecs_service" "api" {
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+
+  lifecycle {
+    ignore_changes = [task_definition]
   }
 
   depends_on = [aws_lb_listener_rule.from_cloudfront]

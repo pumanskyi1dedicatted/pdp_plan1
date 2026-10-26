@@ -23,5 +23,8 @@ output "db_security_group_id" {
   description = "DB security group id"
 }
 
+output "db_identifier" {
+  value = aws_db_instance.fresh-deploy-rds.identifier
+}
 
 
