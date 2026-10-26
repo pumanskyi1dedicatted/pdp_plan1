@@ -42,5 +42,12 @@ data "aws_ssm_parameter" "ecs_ami" {
   name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id"
 }
 
-
+data "terraform_remote_state" "alerts" {
+  backend = "s3"
+  config = {
+    bucket = "fresh-project-pavel-terraform-state-2026"
+    key    = "alerts/terraform.tfstate"
+    region = "eu-north-1"
+  }
+}
 

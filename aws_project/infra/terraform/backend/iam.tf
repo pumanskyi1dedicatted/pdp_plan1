@@ -86,3 +86,8 @@ resource "aws_iam_role_policy" "task_ecs_exec" {
   role   = aws_iam_role.task.id
   policy = data.aws_iam_policy_document.ecs_exec.json
 }
+
+resource "aws_iam_role_policy_attachment" "ecs_instance_cw_agent" {
+  role       = aws_iam_role.ecs_instance.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
